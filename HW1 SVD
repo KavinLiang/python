@@ -6,7 +6,7 @@ import math
 import os
 
 #讀取灰階圖片
-dog_img = cv2.imread('view.jpeg',0)
+dog_img = cv2.imread('dog.jpeg',0)
 view_img = cv2.imread('view.jpeg',0)
 
 #svd分解
