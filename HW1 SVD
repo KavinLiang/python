@@ -14,17 +14,26 @@ def svd(image):
     u,sigma,vt = np.linalg.svd(image,full_matrices = False)
     return u,sigma,vt
 
-#照片重組
+#照片重組計算圖片size
 def rebuild_img(u,sigma,vt,k):
     #使K最大值不超過sigma數量
     kmax = min(k,len(sigma)-1)
+    #計算重組圖片大小
+    u_len = u.shape[0]
+    vt_len = vt.shape[0]
+    sig_len = sigma[:kmax].size
+    img_size = round((u_len * kmax + sig_len + vt_len * kmax)/1024/8,3)
     #依照K值重組矩陣
     Ak= np.dot(u[:,:kmax],np.dot(np.diag(sigma[:kmax]),vt[:kmax,:]))
+    print("img_size:",img_size)
     #AK_img用於顯示圖片，AK用於計算
     Ak_img = Ak
     Ak_img[Ak_img<0]=0
     Ak_img[Ak_img>255]=255
-    return np.rint(Ak_img).astype('uint8'),Ak
+    return img_size,Ak_img
+
+def cr(org_size,sample_size):
+    return ((sample_size/org_size)*100)
 
 def search_k(sigma,k):   
     kmax = min(k,len(sigma)-1)
@@ -39,17 +48,26 @@ def norm2(a,ak):
     result = round(result,3)
     return result
 
-def file_compression(org_file,sample_file):
-    #轉%
-    result = (org_file / sample_file) * 100.0
-    result = (str)(round(result,3)) + "%"
-    return result
+def psnr(org_img,sample_img):
+    mse = np.mean((org_img/1.0-sample_img/1.0)**2)
+    if(mse < 1.0e-10):
+        return 100
+    return 10*math.log10(255.0**2/mse)
 
-def sigma_fusion(sigma1, sigma2, multiple):
+def sigma_fusion(sigma1, sigma2):    
+    #n= half-lengh of sigma1
+    n = int(len(sigma1) / 2)
+    #建議縮小倍數
+    sug_mult = sigma2[0]/sigma1[n]
+    #合成sigma1前半段和sigma2前半段，並將sigma2縮小，減少對sigma1的影響
+    mix_sigma = np.concatenate((sigma1[:n], sigma2[:n]/sug_mult), axis=None) 
+    return mix_sigma,sug_mult
+
+def sigma_fusion(sigma1, sigma2,mult):    
     #n= half-lengh of sigma1
     n = int(len(sigma1) / 2)
     #合成sigma1前半段和sigma2前半段，並將sigma2縮小，減少對sigma1的影響
-    mix_sigma = np.concatenate((sigma1[:n], sigma2[:n]/multiple), axis=None) 
+    mix_sigma = np.concatenate((sigma1[:n], sigma2[:n]/mult), axis=None) 
     return mix_sigma
 
 
@@ -57,12 +75,11 @@ def sigma_fusion(sigma1, sigma2, multiple):
 u,sigma,vt = svd(dog_img)
 u_view,sigma_view,vt_view = svd(view_img)
 
-multarray = [10,100,1000,10000,100000,1000000]
-
+multarray = [10,100,1000,2016,10000,100000,1000000]
+mult_2norm =[]
 #隱藏圖片訊息
-for i in range(0,6):
-    name = (str) (i) + "mix.jpg"
-    sigma_metrix = sigma_fusion(sigma,sigma_view,multarray[i])    
+for i in range(1,5000,5):
+    sigma_metrix = sigma_fusion(sigma,sigma_view,i)    
     mix_picture = np.dot(u,np.dot((np.diag(sigma_metrix)),vt))
 
 #重新拆解隱藏訊息
@@ -70,79 +87,82 @@ for i in range(0,6):
 
 #取出後段sigma
     mix_sigma_length = int(len(sigma_mix)/2)
-    need_sigma = sigma_mix[mix_sigma_length:]*multarray[i]
+    need_sigma = sigma_mix[mix_sigma_length:]*i
 
 #重組圖片
-    rebuild_view_img,rebuild_img_view_Ak = rebuild_img(u_view,need_sigma,vt_view,500)
-    re_img = np.rint(rebuild_view_img).astype('uint8')
-    cv2.imwrite(name,re_img)
-    
-#不同參數的圖片合成
-    if i== 0:
-        mixpicture = re_img
-    else:
-        if i == 1 or i == 2:
-            mixpicture = np.concatenate((mixpicture,re_img),axis=1)
-        else:
-            if i == 3:
-                mixpicture1 = rebuild_view_img
-            else:
-                mixpicture1 = np.concatenate((mixpicture1,re_img),axis=1)
-lastmix = np.concatenate((mixpicture,mixpicture1),axis=0)
+    rebuild_view_img_size,rebuild_img_view_Ak = rebuild_img(u_view,need_sigma,vt_view,500)
+    re_img = np.rint(rebuild_img_view_Ak).astype('uint8')
+    mult_2norm.append(norm2(view_img,rebuild_img_view_Ak))
 
-cv2.imwrite("lastmix.jpg",lastmix)
-cv2.imshow("mixpicture",lastmix)
-cv2.imshow("new_img",re_img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
 
-karray = [1,2,3,4,5,10,20,30,40,50,100,200,300,400,250]
+# print(mult_2norm)
 
-#製作不同K值圖片合成
+# #不同參數的圖片合成
+#     if i== 0:
+#         mixpicture = re_img
+#     else:
+#         if i == 1 or i == 2:
+#             mixpicture = np.concatenate((mixpicture,re_img),axis=1)
+#         else:
+#             if i == 3:
+#                 mixpicture1 = rebuild_view_img
+#             else:
+#                 mixpicture1 = np.concatenate((mixpicture1,re_img),axis=1)
+# lastmix = np.concatenate((mixpicture,mixpicture1),axis=0)
+
+# cv2.imwrite("lastmix.jpg",lastmix)
+# cv2.imshow("mixpicture",lastmix)
+# cv2.imshow("new_img",re_img)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
+
+karray = [1,2,3,4,5,10,20,30,40,50,100,200,300,400,500]
+
+# #製作不同K值圖片合成
 for i in range(1,4,1):
     for j in range(0,5,1):
         name = (str) (j+(i-1)*5)
         if j == 0:
-            A,Ak = rebuild_img(u,sigma,vt,karray[j+(i-1)*5])
-            cv2.imwrite(( (str)(karray[j+(i-1)*5]) + ".jpg"),A)
+            A_size,A = rebuild_img(u,sigma,vt,karray[j+(i-1)*5])
+#             cv2.imwrite(( (str)(karray[j+(i-1)*5]) + ".jpg"),A)
         else:
-            A1,Ak = rebuild_img(u,sigma,vt,karray[j+(i-1)*5])
+            A1_size,A1 = rebuild_img(u,sigma,vt,karray[j+(i-1)*5])
             A = np.concatenate((A,A1),axis=1)
-            cv2.imwrite(( (str)(karray[j+(i-1)*5]) + ".jpg"),A1)
+#             cv2.imwrite(( (str)(karray[j+(i-1)*5]) + ".jpg"),A1)
     if i == 1:
         A_result = A
     else:
         A_result = np.concatenate((A_result,A),axis = 0)
-cv2.imwrite("org.jpg",dog_img)
+cv2.imwrite("mix_view.jpg",A_result)
 
-org_filesize = os.path.getsize(r'org.jpg')
 data = []
 dataarray =[]
 for i in range(0,15):
-    #讀取圖片儲存空間
-    name = (str)(karray[i]) + ".jpg" 
-    file_size = os.path.getsize(name)
-    file_com = file_compression(file_size,org_filesize)
     #2-norm
-    org_img,org_Ak = rebuild_img(u,sigma,vt,10000)
-    img_k,img_Ak = rebuild_img(u,sigma,vt,karray[i])
+    org_img_size,org_Ak = rebuild_img(u,sigma,vt,10000)
+    img_k_size,img_Ak = rebuild_img(u,sigma,vt,karray[i])
     norm_2 = norm2(org_Ak,img_Ak)
     #sigma k+1
     sigma_k = search_k(sigma,karray[i])    
-    #data[k值,2-norm,sigma k+1,原圖大小,壓縮後圖片大小,壓縮比]
+    #cr
+    img_cr = round(cr(org_img_size,img_k_size),3)
+    #psnr
+    img_psnr = round(psnr(org_Ak,img_Ak),3)
+    #data[k值,2-norm,sigma k+1,原圖大小,壓縮後圖片大小,壓縮比,PSNR]
     data.append(karray[i])
     data.append(norm_2)
     data.append(sigma_k)
-    data.append(round(org_filesize/1000,3))
-    data.append(round(file_size/1000,3))
-    data.append(file_com)
+    data.append(org_img_size)
+    data.append(img_k_size)
+    data.append(img_cr)
+    data.append(img_psnr)
 a = np.array(data)
-dataarray = a.reshape(15,6)
+dataarray = a.reshape(15,7)
 
 #顯示計算結果表格
-print("{:<7}{:<11}{:<12}{:<10}{:<10}{:<8}".format('k值','2-norm','sigma(k+1)','原圖大小(kb)','壓縮大小(kb)','壓縮比率'))
+print("{:<7}{:<11}{:<12}{:<10}{:<10}{:<8}{:<8}".format('k值','2-norm','sigma(k+1)','原圖大小(kb)','壓縮大小(kb)','壓縮比率(%)','PSNR'))
 for i in dataarray:
-    print("{:<8}{:<11}{:<13}{:<13}{:<13}{:<10}".format(i[0],i[1],i[2],i[3],i[4],i[5]))
+    print("{:<8}{:<11}{:<13}{:<13}{:<13}{:<11}{:<10}".format(i[0],i[1],i[2],i[3],i[4],i[5],i[6]))
 
 #顯示K值與simga關係圖
 list1 =[]
@@ -150,12 +170,22 @@ for i in range(1,len(sigma),1):
     list1.append(search_k(sigma,i))   
 plt.xlabel("K value")
 plt.ylabel("sigma value")
-plt.title("K-sigma")
+plt.title("Dog-K-sigma")
+plt.grid(True)
 plt.plot(list1)
 plt.show()    
+
+list2 = []
+for i in dataarray:
+    list2.append(i[6])
+plt.xlabel("K value")
+plt.ylabel("PSNR value")
+plt.title("Dog-PSNR")
+plt.grid(True)
+plt.plot(karray,list2)
+plt.show()   
     
     
 cv2.imshow("org_img",dog_img)
-cv2.imshow("K",img_k)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
